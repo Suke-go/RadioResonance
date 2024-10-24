@@ -5,72 +5,80 @@ from mpl_toolkits.mplot3d import Axes3D
 from picamera2 import Picamera2
 from libcamera import controls
 
-# カメラパラメータの読み込み
+print("Loading camera parameters...")
 mtx = np.load('camera/mtx.npy')  # カメラ行列
 dist = np.load('camera/dist.npy')  # 歪み係数
+print("Camera parameters loaded.")
 
-# ArUcoマーカーディクショナリの取得
+print("Getting ArUco marker dictionary...")
 aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
 parameters = cv2.aruco.DetectorParameters()
+print("ArUco marker dictionary obtained.")
 
-# マーカーの物理的なサイズ (メートル)
 marker_length = 0.07
+print(f"Marker length set to {marker_length} meters.")
 
-# PiCameraの設定
+print("Configuring PiCamera...")
 picam2 = Picamera2()
 picam2.configure(picam2.create_preview_configuration(main={"format": 'XRGB8888', "size": (640, 480)}))
 picam2.start()
 picam2.set_controls({"AfMode": controls.AfModeEnum.Continuous})
+print("PiCamera configured and started.")
 
-# 3Dプロットのセットアップ
+print("Setting up 3D plot...")
 fig = plt.figure()
 ax = fig.add_subplot(111, projection='3d')
 ax.set_xlabel("X")
 ax.set_ylabel("Y")
 ax.set_zlabel("Z")
-
-# 3Dグラフの範囲設定
 ax.set_xlim([-1, 1])
 ax.set_ylim([-1, 1])
 ax.set_zlim([-1, 1])
+print("3D plot setup complete.")
 
 while True:
-    # カメラからフレームを取得
+    print("Capturing frame from camera...")
     frame = picam2.capture_array()
+    print("Frame captured.")
 
-    # グレースケールに変換
+    print("Converting frame to grayscale...")
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    print("Conversion to grayscale complete.")
 
-    # ArUcoマーカーの検出
+    print("Detecting ArUco markers...")
     corners, ids, rejectedImgPoints = cv2.aruco.detectMarkers(gray, aruco_dict, parameters=parameters)
+    print(f"Markers detected: {ids}")
 
-    # マーカーが検出された場合
     if np.all(ids is not None):
-        # マーカーの姿勢（回転ベクトルと並進ベクトル）を推定
+        print("Estimating pose of detected markers...")
         rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(corners, marker_length, mtx, dist)
+        print("Pose estimation complete.")
 
-        # 各マーカーについて位置を推定
         for rvec, tvec in zip(rvecs, tvecs):
-            # マーカーの座標軸を描画
+            print("Drawing frame axes for marker...")
             cv2.drawFrameAxes(frame, mtx, dist, rvec, tvec, marker_length / 2)
+            print("Frame axes drawn.")
 
-            # 回転ベクトルを回転行列に変換
+            print("Converting rotation vector to rotation matrix...")
             R, _ = cv2.Rodrigues(rvec)
+            print("Conversion complete.")
 
-            # カメラ座標を計算
-            R_T = R.T  # 回転行列の転置
+            print("Calculating camera position...")
+            R_T = R.T
             camera_position = -np.dot(R_T, tvec.T).squeeze()
+            print(f"Camera position: {camera_position}")
 
-            # プロットをリセット
-            ax.cla()  # 以前のプロットをクリア
+            print("Resetting plot...")
+            ax.cla()
             ax.set_xlabel("X")
             ax.set_ylabel("Y")
             ax.set_zlabel("Z")
-            ax.set_xlim([-1, 1])  # 軸の範囲を再設定
+            ax.set_xlim([-1, 1])
             ax.set_ylim([-1, 1])
             ax.set_zlim([-1, 1])
+            print("Plot reset.")
 
-            # カメラの位置を3Dプロットに反映
+            print("Updating 3D plot with camera position...")
             ax.scatter(camera_position[0], camera_position[1], camera_position[2], color='b')
             ax.quiver(camera_position[0], camera_position[1], camera_position[2],
                       R_T[0, 0], R_T[0, 1], R_T[0, 2], length=0.1, color='r')
@@ -78,22 +86,30 @@ while True:
                       R_T[1, 0], R_T[1, 1], R_T[1, 2], length=0.1, color='g')
             ax.quiver(camera_position[0], camera_position[1], camera_position[2],
                       R_T[2, 0], R_T[2, 1], R_T[2, 2], length=0.1, color='b')
+            print("3D plot updated.")
 
-    # 検出されたマーカーの枠を表示
+    print("Drawing detected markers on frame...")
     cv2.aruco.drawDetectedMarkers(frame, corners, ids)
+    print("Detected markers drawn.")
 
-    # 結果を表示
+    print("Displaying frame...")
     cv2.imshow('frame', frame)
+    print("Frame displayed.")
 
-    # 3Dグラフを更新
+    print("Updating 3D plot...")
     plt.draw()
     plt.pause(0.01)
+    print("3D plot updated.")
 
-    # 'Esc'キーが押されたら終了
     if cv2.waitKey(1) == 27:
+        print("Escape key pressed. Exiting loop.")
         break
 
-# 後片付け
+print("Stopping camera...")
 picam2.stop()
+print("Camera stopped.")
+
+print("Destroying all windows...")
 cv2.destroyAllWindows()
 plt.close()
+print("All windows destroyed.")
