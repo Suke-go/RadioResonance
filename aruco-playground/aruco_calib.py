@@ -76,7 +76,7 @@ try:
             # Draw detected markers and axes
             for rvec, tvec in zip(rvecs, tvecs):
                 cv2.drawFrameAxes(frame, mtx, dist, rvec, tvec, marker_length / 2)
-            cv2.aruco.drawDetectedMarkers(frame, corners, ids)
+            cv2.aruco.drawDetectedMarkers(frame[0], corners, ids)
 
         # Display frame
         cv2.imshow('Calibration', frame)
