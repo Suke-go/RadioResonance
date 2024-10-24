@@ -1,22 +1,24 @@
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
 from picamera2 import Picamera2
 from libcamera import controls
 import json
-
-# Load camera parameters
-mtx = np.load('camera/mtx.npy')  # Camera matrix
-dist = np.load('camera/dist.npy')  # Distortion coefficients
+from scipy.spatial.transform import Rotation as R
 
 # Load calibration data
 with open('calibration_data.json', 'r') as f:
     calibration_data = json.load(f)
 
-# Convert positions to numpy arrays
+# Convert marker positions and rotations to numpy arrays
 for marker_id in calibration_data:
-    calibration_data[marker_id] = np.array(calibration_data[marker_id], dtype=np.float32)
+    data = calibration_data[marker_id]
+    calibration_data[marker_id]['position'] = np.array(data['position'])
+    calibration_data[marker_id]['rotation_matrix'] = np.array(data['rotation_matrix'])
+
+# Load camera parameters
+mtx = np.load('camera/mtx.npy')  # Camera matrix
+dist = np.load('camera/dist.npy')  # Distortion coefficients
 
 # Get ArUco marker dictionary
 aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
@@ -33,6 +35,18 @@ picam2.set_controls({"AfMode": controls.AfModeEnum.Continuous})
 # Set up 3D plot
 fig = plt.figure()
 ax = fig.add_subplot(111, projection='3d')
+ax.set_xlabel("X (m)")
+ax.set_ylabel("Y (m)")
+ax.set_zlabel("Z (m)")
+ax.set_xlim([-1, 1])
+ax.set_ylim([-1, 1])
+ax.set_zlim([-1, 1])
+
+# Plot marker positions
+for marker_id in calibration_data:
+    position = calibration_data[marker_id]['position']
+    ax.scatter(position[0], position[1], position[2], color='red', marker='^')
+    ax.text(position[0], position[1], position[2], f"Marker {marker_id}", color='red')
 
 try:
     while True:
@@ -43,94 +57,92 @@ try:
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
         # Detect ArUco markers
-        corners, ids, _ = cv2.aruco.detectMarkers(gray, aruco_dict, parameters=parameters)
+        corners, ids, rejectedImgPoints = cv2.aruco.detectMarkers(gray, aruco_dict, parameters=parameters)
+
+        camera_positions = []
+        camera_orientations = []
 
         if ids is not None:
             ids = ids.flatten()
-
             # Estimate pose of each marker
             rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(corners, marker_length, mtx, dist)
-
-            # Prepare lists for object points and image points
-            object_points = []
-            image_points = []
 
             for idx, marker_id in enumerate(ids):
                 marker_id_str = str(marker_id)
                 if marker_id_str in calibration_data:
-                    # Known position of the marker in world coordinates
-                    world_position = calibration_data[marker_id_str]
+                    # Get pose of the marker relative to the camera
+                    rvec, tvec = rvecs[idx], tvecs[idx]
 
-                    # Get the corner points of the marker
-                    corner = corners[idx].reshape(-1, 2)
-                    image_points.extend(corner)
-                    
-                    # Define the 3D coordinates of the marker's corners
-                    half_size = marker_length / 2
-                    obj_pts = np.array([
-                        [-half_size, half_size, 0.0],
-                        [half_size, half_size, 0.0],
-                        [half_size, -half_size, 0.0],
-                        [-half_size, -half_size, 0.0]
-                    ], dtype=np.float32)
+                    # Convert rotation vector to rotation matrix
+                    R_ct, _ = cv2.Rodrigues(rvec)
+                    T_ct = tvec.reshape((3, 1))
 
-                    # Add the marker's world position to the object points
-                    obj_pts += world_position
-                    object_points.extend(obj_pts)
-            
-            if len(object_points) >= 4:
-                object_points = np.array(object_points, dtype=np.float32)
-                image_points = np.array(image_points, dtype=np.float32)
+                    # Transformation matrix from camera to marker (camera coordinate system to marker coordinate system)
+                    RT_cam_to_marker = np.hstack((R_ct, T_ct))
+                    RT_cam_to_marker = np.vstack((RT_cam_to_marker, [0, 0, 0, 1]))
 
-                # Estimate camera pose using solvePnP
-                retval, rvec, tvec = cv2.solvePnP(object_points, image_points, mtx, dist)
+                    # Inverse to get marker to camera transformation
+                    RT_marker_to_cam = np.linalg.inv(RT_cam_to_marker)
 
-                if retval:
-                    # Draw the axes on the frame
-                    cv2.drawFrameAxes(frame, mtx, dist, rvec, tvec, marker_length)
+                    # Known marker pose in world coordinate system
+                    marker_position = calibration_data[marker_id_str]['position']
+                    marker_rotation = calibration_data[marker_id_str]['rotation_matrix']
 
-                    # Compute rotation matrix
-                    R, _ = cv2.Rodrigues(rvec)
+                    # Transformation matrix from world to marker
+                    RT_world_to_marker = np.hstack((marker_rotation, marker_position.reshape((3, 1))))
+                    RT_world_to_marker = np.vstack((RT_world_to_marker, [0, 0, 0, 1]))
 
-                    # Compute camera position
-                    camera_position = -R.T @ tvec
-                    camera_position = camera_position.flatten()
-                    print(f"Camera Position: {camera_position}")
+                    # Compute camera pose in world coordinate system
+                    RT_world_to_cam = np.dot(RT_world_to_marker, RT_marker_to_cam)
 
-                    # Reset plot
-                    ax.cla()
-                    ax.set_xlabel("X")
-                    ax.set_ylabel("Y")
-                    ax.set_zlabel("Z")
-                    ax.set_xlim([-1, 1])
-                    ax.set_ylim([-1, 1])
-                    ax.set_zlim([-1, 1])
+                    # Extract rotation and translation
+                    R_wc = RT_world_to_cam[:3, :3]
+                    T_wc = RT_world_to_cam[:3, 3]
 
-                    # Plot camera position
-                    ax.scatter(camera_position[0], camera_position[1], camera_position[2], color='r', label='Camera')
+                    camera_positions.append(T_wc)
+                    camera_orientations.append(R_wc)
 
-                    # Plot markers
-                    for marker_id_str in calibration_data:
-                        marker_pos = calibration_data[marker_id_str]
-                        if int(marker_id_str) == 1:
-                            ax.scatter(marker_pos[0], marker_pos[1], marker_pos[2], color='g', label='Marker 1')
-                        else:
-                            ax.scatter(marker_pos[0], marker_pos[1], marker_pos[2], color='b')
+                    # Draw detected markers and axes
+                    cv2.drawFrameAxes(frame, mtx, dist, rvec, tvec, marker_length / 2)
+            cv2.aruco.drawDetectedMarkers(frame, corners, ids)
 
-                    ax.legend()
-                    plt.draw()
-                    plt.pause(0.01)
-                else:
-                    print("Pose estimation failed.")
-            else:
-                print("Not enough points for pose estimation.")
+            if camera_positions:
+                # Average camera positions and orientations if multiple markers are detected
+                avg_camera_position = np.mean(camera_positions, axis=0)
+                avg_camera_orientation = R.from_matrix(camera_orientations).mean().as_matrix()
 
-            # Draw detected markers and axes
-            for rvec, tvec in zip(rvecs, tvecs):
-                cv2.drawFrameAxes(frame, mtx, dist, rvec, tvec, marker_length / 2)
-            cv2.aruco.drawDetectedMarkers(frame[0], corners, ids)
-        else:
-            print("No markers detected.")
+                # Reset plot
+                ax.cla()
+                ax.set_xlabel("X (m)")
+                ax.set_ylabel("Y (m)")
+                ax.set_zlabel("Z (m)")
+                ax.set_xlim([-1, 1])
+                ax.set_ylim([-1, 1])
+                ax.set_zlim([-1, 1])
+
+                # Plot marker positions
+                for marker_id in calibration_data:
+                    position = calibration_data[marker_id]['position']
+                    ax.scatter(position[0], position[1], position[2], color='red', marker='^')
+                    ax.text(position[0], position[1], position[2], f"Marker {marker_id}", color='red')
+
+                # Plot camera position
+                ax.scatter(avg_camera_position[0], avg_camera_position[1], avg_camera_position[2], color='blue', marker='o')
+                ax.text(avg_camera_position[0], avg_camera_position[1], avg_camera_position[2], "Camera", color='blue')
+
+                # Draw camera orientation axes
+                axis_length = 0.05  # Adjust as needed
+                origin = avg_camera_position
+                x_axis = avg_camera_orientation[:, 0] * axis_length
+                y_axis = avg_camera_orientation[:, 1] * axis_length
+                z_axis = avg_camera_orientation[:, 2] * axis_length
+
+                ax.quiver(origin[0], origin[1], origin[2], x_axis[0], x_axis[1], x_axis[2], color='r')
+                ax.quiver(origin[0], origin[1], origin[2], y_axis[0], y_axis[1], y_axis[2], color='g')
+                ax.quiver(origin[0], origin[1], origin[2], z_axis[0], z_axis[1], z_axis[2], color='b')
+
+                plt.draw()
+                plt.pause(0.001)
 
         # Display frame
         cv2.imshow('Localization', frame)
