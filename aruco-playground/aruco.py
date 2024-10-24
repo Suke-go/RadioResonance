@@ -90,6 +90,8 @@ while True:
 
     if corners:
         print("Drawing detected markers on frame...")
+        # Remove the alpha channel from the frame to convert it to RGB
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
         cv2.aruco.drawDetectedMarkers(frame, corners, ids)
         print("Detected markers drawn.")
 
