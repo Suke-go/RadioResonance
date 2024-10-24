@@ -56,7 +56,7 @@ try:
 
                 # For other markers, compute their positions relative to marker 1
                 for idx, marker_id in enumerate(ids):
-                    if marker_id != 1:
+                    if marker_id != 1 and marker_id < 7:
                         rvec, tvec = rvecs[idx], tvecs[idx]
                         R, _ = cv2.Rodrigues(rvec)
                         T = tvec.reshape((3, 1))
