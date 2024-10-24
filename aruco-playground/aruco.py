@@ -88,21 +88,18 @@ while True:
                       R_T[2, 0], R_T[2, 1], R_T[2, 2], length=0.1, color='b')
             print("3D plot updated.")
 
-    if corners:
-        print("Drawing detected markers on frame...")
-        # Remove the alpha channel from the frame to convert it to RGB
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
-        cv2.aruco.drawDetectedMarkers(frame, corners, ids)
-        print("Detected markers drawn.")
+    print("Drawing detected markers on frame...")
+    cv2.aruco.drawDetectedMarkers(frame[0], corners, ids)
+    print("Detected markers drawn.")
 
-        print("Displaying frame...")
-        cv2.imshow('frame', frame)
-        print("Frame displayed.")
+    print("Displaying frame...")
+    cv2.imshow('frame', frame)
+    print("Frame displayed.")
 
-        print("Updating 3D plot...")
-        plt.draw()
-        plt.pause(0.01)
-        print("3D plot updated.")
+    print("Updating 3D plot...")
+    plt.draw()
+    plt.pause(0.01)
+    print("3D plot updated.")
 
     if cv2.waitKey(1) == 27:
         print("Escape key pressed. Exiting loop.")
