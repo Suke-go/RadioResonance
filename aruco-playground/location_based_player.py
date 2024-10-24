@@ -1,74 +1,85 @@
 import socket
 import json
-from pydub import AudioSegment
-from pydub.playback import play
-import simpleaudio as sa
+import pygame
+import numpy as np
+import soundfile as sf
 
-# 音声ファイルの読み込み
-audio1 = AudioSegment.from_file("berlin1936.wav")  # 音源1
-audio2 = AudioSegment.from_file("warsaw1939.wav")  # 音源2
-
-# ソケットの設定
+# サーバーの設定
 host = '127.0.0.1'
 port = 65432
 
-# サーバーソケットの作成
+# 音声ファイルを読み込む
+file1 = 'audio1.wav'
+file2 = 'audio2.wav'
+
+data1, samplerate1 = sf.read(file1)
+data2, samplerate2 = sf.read(file2)
+
+# 音声データがステレオかモノラルかチェック
+if len(data1.shape) == 1:
+    data1 = np.tile(data1, (2, 1)).T  # モノラルの場合、ステレオに変換
+if len(data2.shape) == 1:
+    data2 = np.tile(data2, (2, 1)).T  # モノラルの場合、ステレオに変換
+
+# pygame の初期化
+pygame.mixer.init(frequency=samplerate1, size=-16, channels=2)
+
+# WAVデータの長さを確認し、長さをそろえる
+min_length = min(len(data1), len(data2))
+data1 = data1[:min_length]
+data2 = data2[:min_length]
+
+# サーバーを設定
 server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server_sock.bind((host, port))
 server_sock.listen()
 
-print("接続を待機中...")
+print('Waiting for connection...')
 conn, addr = server_sock.accept()
-print(f"接続されました: {addr}")
+print(f"Connected by {addr}")
 
-# 音を再生するための関数
-def play_audio(audio1, audio2, volume1, volume2):
-    # ボリューム調整
-    adjusted_audio1 = audio1 + volume1
-    adjusted_audio2 = audio2 + volume2
-    
-    # 同時再生のため、長さを揃える
-    combined_audio = adjusted_audio1.overlay(adjusted_audio2)
-    
-    # 再生 (blocking call: 再生完了まで次の処理は進まない)
-    play_obj = sa.play_buffer(
-        combined_audio.raw_data,
-        num_channels=combined_audio.channels,
-        bytes_per_sample=combined_audio.sample_width,
-        sample_rate=combined_audio.frame_rate
-    )
-    play_obj.wait_done()  # 再生が終わるまで待つ
+def get_volume_from_position(x):
+    """
+    x座標に基づいて音量を計算する。
+    x < -0.2: 左（file1の音だけ聞こえる）
+    -0.2 <= x <= 0.2: file1とfile2の音量を線形に変化
+    x > 0.2: 右（file2の音だけ聞こえる）
+    """
+    if x <= -0.2:
+        return 1.0, 0.0  # 完全に左寄り -> file1が最大音量、file2は無音
+    elif x >= 0.2:
+        return 0.0, 1.0  # 完全に右寄り -> file2が最大音量、file1は無音
+    else:
+        left_volume = (0.2 - x) / 1.0  # 中央に近いと両方の音が聞こえる
+        right_volume = (x + 0.2) / 1.0
+        return left_volume, right_volume
 
-# クライアントからのデータ受信と処理
 try:
     while True:
         data = conn.recv(1024)
         if not data:
             break
+        position_data = json.loads(data.decode('utf-8'))
+        x_pos = position_data['position'][0]
 
-        # 受信したデータをデコードしてJSONとしてパース
-        received_data = json.loads(data.decode('utf-8'))
-        position = received_data["position"]
-        x = position[0]  # X座標を取得
+        # x座標に基づいて音量を調整
+        left_vol, right_vol = get_volume_from_position(x_pos)
 
-        # X座標に応じたボリューム調整
-        if x <= -0.5:
-            volume1 = 0  # 左に行き過ぎたら音源1のみ聞こえる
-            volume2 = -100  # 音源2の音量を最小に
-        elif x >= 0.5:
-            volume1 = -100  # 右に行き過ぎたら音源2のみ聞こえる
-            volume2 = 0  # 音源1の音量を最小に
-        else:
-            # xが-0.5から0.5の間にある場合、音量を線形補間で調整
-            volume1 = (0.5 - x) * 200 - 100  # 0.5で音源1が最大、-0.5で最小
-            volume2 = (x + 0.5) * 200 - 100  # -0.5で音源2が最大、0.5で最小
+        # 左右の音量を適用してミキシング
+        mixed_data = (data1 * left_vol + data2 * right_vol).astype(np.float32)
 
-        # 調整後の音を再生
-        play_audio(audio1, audio2, volume1, volume2)
+        # 音声を再生
+        sound = pygame.mixer.Sound(mixed_data)
+        sound.play()
+
+        # 再生中に次のデータを受け取る
+        while pygame.mixer.get_busy():
+            pass
 
 except KeyboardInterrupt:
-    pass
+    print("Server stopped.")
+
 finally:
-    # ソケットを閉じる
     conn.close()
-    server_sock.close
+    server_sock.close()
+    pygame.mixer.quit()
