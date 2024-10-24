@@ -12,7 +12,7 @@ print("Camera parameters loaded.")
 
 print("Getting ArUco marker dictionary...")
 aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
-parameters = cv2.aruco.DetectorParameters()
+parameters = cv2.aruco.DetectorParameters_create()
 print("ArUco marker dictionary obtained.")
 
 marker_length = 0.07
@@ -88,18 +88,19 @@ while True:
                       R_T[2, 0], R_T[2, 1], R_T[2, 2], length=0.1, color='b')
             print("3D plot updated.")
 
-    print("Drawing detected markers on frame...")
-    cv2.aruco.drawDetectedMarkers(frame, corners, ids)
-    print("Detected markers drawn.")
+    if corners:
+        print("Drawing detected markers on frame...")
+        cv2.aruco.drawDetectedMarkers(frame, corners, ids)
+        print("Detected markers drawn.")
 
-    print("Displaying frame...")
-    cv2.imshow('frame', frame)
-    print("Frame displayed.")
+        print("Displaying frame...")
+        cv2.imshow('frame', frame)
+        print("Frame displayed.")
 
-    print("Updating 3D plot...")
-    plt.draw()
-    plt.pause(0.01)
-    print("3D plot updated.")
+        print("Updating 3D plot...")
+        plt.draw()
+        plt.pause(0.01)
+        print("3D plot updated.")
 
     if cv2.waitKey(1) == 27:
         print("Escape key pressed. Exiting loop.")
