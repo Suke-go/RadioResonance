@@ -61,6 +61,8 @@ while True:
     if cv2.waitKey(1) == 27:
         break
 
+picam2.stop()
+
 # キャリブレーションの実行
 if len(objpoints) > 0 and len(imgpoints) > 0:
     ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], None, None)
@@ -78,5 +80,4 @@ else:
     print("キャリブレーションに失敗しました。十分なコーナーが検出されませんでした。")
 
 # カメラを停止
-picam2.stop()
 cv2.destroyAllWindows()
