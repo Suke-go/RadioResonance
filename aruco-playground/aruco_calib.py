@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from picamera2 import Picamera2
 from libcamera import controls
 import json
+from scipy.spatial.transform import Rotation as R
 
 # Load camera parameters
 mtx = np.load('camera/mtx.npy')  # Camera matrix
@@ -14,6 +15,7 @@ aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
 parameters = cv2.aruco.DetectorParameters_create()
 
 marker_length = 0.07  # meters
+marker_count = 6
 
 # Configure PiCamera
 picam2 = Picamera2()
@@ -21,11 +23,11 @@ picam2.configure(picam2.create_preview_configuration(main={"format": 'XRGB8888',
 picam2.start()
 picam2.set_controls({"AfMode": controls.AfModeEnum.Continuous})
 
-# Initialize storage for marker positions relative to marker ID 1
-marker_positions = {}
-for marker_id in range(1, 7):  # IDs from 1 to 6
+# Initialize storage for marker positions and orientations relative to marker ID 1
+marker_poses = {}
+for marker_id in range(1, marker_count + 1):  # IDs from 1 to 6
     if marker_id != 1:
-        marker_positions[marker_id] = {'position': np.zeros((3,)), 'count': 0}
+        marker_poses[marker_id] = {'rotations': [], 'positions': []}
 
 try:
     while True:
@@ -54,24 +56,28 @@ try:
                 RT_1 = np.hstack((R_1, T_1))
                 RT_1 = np.vstack((RT_1, [0, 0, 0, 1]))
 
-                # For other markers, compute their positions relative to marker 1
+                # For other markers, compute their positions and orientations relative to marker 1
                 for idx, marker_id in enumerate(ids):
-                    if marker_id != 1 and marker_id < 7:
+                    if marker_id != 1 and marker_id <= marker_count:
                         rvec, tvec = rvecs[idx], tvecs[idx]
-                        R, _ = cv2.Rodrigues(rvec)
-                        T = tvec.reshape((3, 1))
-                        RT = np.hstack((R, T))
-                        RT = np.vstack((RT, [0, 0, 0, 1]))
+                        R_marker, _ = cv2.Rodrigues(rvec)
+                        T_marker = tvec.reshape((3, 1))
+                        RT_marker = np.hstack((R_marker, T_marker))
+                        RT_marker = np.vstack((RT_marker, [0, 0, 0, 1]))
 
                         # Compute transformation from marker 1 to this marker
-                        RT_relative = np.dot(np.linalg.inv(RT_1), RT)
+                        RT_relative = np.dot(np.linalg.inv(RT_1), RT_marker)
 
-                        # Extract translation vector
-                        position = RT_relative[:3, 3]
+                        # Extract rotation and translation
+                        R_relative = RT_relative[:3, :3]
+                        T_relative = RT_relative[:3, 3]
 
-                        # Accumulate position for averaging
-                        marker_positions[marker_id]['position'] += position
-                        marker_positions[marker_id]['count'] += 1
+                        # Convert rotation matrix to quaternion
+                        rotation = R.from_matrix(R_relative).as_quat()
+
+                        # Store rotation and position
+                        marker_poses[marker_id]['rotations'].append(rotation)
+                        marker_poses[marker_id]['positions'].append(T_relative)
 
             # Draw detected markers and axes
             for rvec, tvec in zip(rvecs, tvecs):
@@ -92,18 +98,35 @@ except KeyboardInterrupt:
 picam2.stop()
 cv2.destroyAllWindows()
 
-# Compute average positions
-for marker_id in marker_positions:
-    data = marker_positions[marker_id]
-    if data['count'] > 0:
-        average_position = data['position'] / data['count']
-        marker_positions[marker_id]['average_position'] = average_position
-        print(f"Marker ID {marker_id} average position relative to Marker ID 1: {average_position}")
+# Compute average positions and rotations
+for marker_id in marker_poses:
+    data = marker_poses[marker_id]
+    if len(data['positions']) > 0:
+        # Average positions
+        avg_position = np.mean(data['positions'], axis=0)
+
+        # Average rotations using quaternions
+        rotations = R.from_quat(data['rotations'])
+        mean_rotation = rotations.mean()
+        avg_rotation_matrix = mean_rotation.as_matrix()
+
+        # Store the averaged pose
+        marker_poses[marker_id]['average_position'] = avg_position
+        marker_poses[marker_id]['average_rotation'] = avg_rotation_matrix
+
+        print(f"Marker ID {marker_id} average position relative to Marker ID 1: {avg_position}")
+        print(f"Marker ID {marker_id} average rotation matrix relative to Marker ID 1:\n{avg_rotation_matrix}")
     else:
         print(f"No data collected for Marker ID {marker_id}")
 
 # Save the calibration data
-calibration_data = {marker_id: data['average_position'].tolist() for marker_id, data in marker_positions.items() if 'average_position' in data}
+calibration_data = {}
+for marker_id, data in marker_poses.items():
+    if 'average_position' in data and 'average_rotation' in data:
+        calibration_data[marker_id] = {
+            'position': data['average_position'].tolist(),
+            'rotation_matrix': data['average_rotation'].tolist()
+        }
 
 with open('calibration_data.json', 'w') as f:
     json.dump(calibration_data, f)
