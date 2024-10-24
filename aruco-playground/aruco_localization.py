@@ -104,7 +104,7 @@ try:
 
                     # Draw detected markers and axes
                     cv2.drawFrameAxes(frame, mtx, dist, rvec, tvec, marker_length / 2)
-            cv2.aruco.drawDetectedMarkers(frame, corners, ids)
+            cv2.aruco.drawDetectedMarkers(frame[0], corners, ids)
 
             if camera_positions:
                 # Average camera positions and orientations if multiple markers are detected
