@@ -1,6 +1,8 @@
 import cv2
 import numpy as np
 import os
+from picamera2 import Picamera2
+from libcamera import controls
 
 # キャリブレーションに使用するチェスボードのサイズ（コーナーの数）
 chessboard_size = (9, 6)
@@ -23,20 +25,16 @@ imgpoints = []  # 2D画像平面上の座標
 # 終了基準（コーナー検出の精度を調整）
 criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
 
-# ウェブカメラの起動
-cap = cv2.VideoCapture(0)
+# PiCameraの起動
+picam2 = Picamera2()
+picam2.configure(picam2.create_preview_configuration(main={"format": 'XRGB8888', "size": (640, 480)}))
+picam2.start()
+picam2.set_controls({"AfMode": controls.AfModeEnum.Continuous})
 
-if not cap.isOpened():
-    print("Webcamの起動に失敗しました")
-    exit()
-
-print("キャリブレーション用のチェスボードをウェブカメラに向けてください。'q'を押して終了します。")
+print("キャリブレーション用のチェスボードをカメラに向けてください。'Esc'を押して終了します。")
 
 while True:
-    ret, frame = cap.read()
-    if not ret:
-        print("フレームの取得に失敗しました")
-        break
+    frame = picam2.capture_array()
 
     # グレースケール画像に変換
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -57,10 +55,10 @@ while True:
         print("コーナーが検出されませんでした")
 
     # 画像を表示
-    cv2.imshow('Webcam', gray)
+    cv2.imshow('Camera', gray)
 
-    # 'q'キーで終了
-    if cv2.waitKey(1) & 0xFF == ord('q'):
+    # 'Esc'キーで終了
+    if cv2.waitKey(1) == 27:
         break
 
 # キャリブレーションの実行
@@ -79,6 +77,6 @@ if len(objpoints) > 0 and len(imgpoints) > 0:
 else:
     print("キャリブレーションに失敗しました。十分なコーナーが検出されませんでした。")
 
-# ウェブカメラをリリース
-cap.release()
+# カメラを停止
+picam2.stop()
 cv2.destroyAllWindows()

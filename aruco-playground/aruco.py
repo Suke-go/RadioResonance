@@ -2,6 +2,8 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+from picamera2 import Picamera2
+from libcamera import controls
 
 # カメラパラメータの読み込み
 mtx = np.load('camera/mtx.npy')  # カメラ行列
@@ -14,8 +16,11 @@ parameters = cv2.aruco.DetectorParameters()
 # マーカーの物理的なサイズ (メートル)
 marker_length = 0.07
 
-# カメラの設定
-cap = cv2.VideoCapture(0)
+# PiCameraの設定
+picam2 = Picamera2()
+picam2.configure(picam2.create_preview_configuration(main={"format": 'XRGB8888', "size": (640, 480)}))
+picam2.start()
+picam2.set_controls({"AfMode": controls.AfModeEnum.Continuous})
 
 # 3Dプロットのセットアップ
 fig = plt.figure()
@@ -31,10 +36,7 @@ ax.set_zlim([-1, 1])
 
 while True:
     # カメラからフレームを取得
-    ret, frame = cap.read()
-    if not ret:
-        print("カメラからの映像を取得できません")
-        break
+    frame = picam2.capture_array()
 
     # グレースケールに変換
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -87,11 +89,11 @@ while True:
     plt.draw()
     plt.pause(0.01)
 
-    # 'q'キーが押されたら終了
-    if cv2.waitKey(1) & 0xFF == ord('q'):
+    # 'Esc'キーが押されたら終了
+    if cv2.waitKey(1) == 27:
         break
 
 # 後片付け
-cap.release()
+picam2.stop()
 cv2.destroyAllWindows()
 plt.close()
