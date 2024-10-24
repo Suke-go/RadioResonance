@@ -61,23 +61,34 @@ while True:
     if cv2.waitKey(1) == 27:
         break
 
+print("Stopping the camera...")
 picam2.stop()
+print("Camera stopped.")
 
-# キャリブレーションの実行
+print("Starting camera calibration...")
 if len(objpoints) > 0 and len(imgpoints) > 0:
+    print(f"Number of object points: {len(objpoints)}")
+    print(f"Number of image points: {len(imgpoints)}")
+    
     ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], None, None)
+    print("Calibration completed.")
+    print(f"Calibration success: {ret}")
 
     # キャリブレーション結果を表示
     print('カメラ行列 (mtx): \n', mtx)
     print('歪み係数 (dist): \n', dist)
 
     # 結果を保存
+    print("Saving calibration results...")
     np.save(os.path.join(save_dir, 'mtx.npy'), mtx)
     np.save(os.path.join(save_dir, 'dist.npy'), dist)
-
     print(f"カメラ行列と歪み係数を{save_dir}に保存しました")
 else:
     print("キャリブレーションに失敗しました。十分なコーナーが検出されませんでした。")
+    print(f"Number of object points: {len(objpoints)}")
+    print(f"Number of image points: {len(imgpoints)}")
 
 # カメラを停止
+print("Destroying all windows...")
 cv2.destroyAllWindows()
+print("All windows destroyed.")
