@@ -5,6 +5,15 @@ from picamera2 import Picamera2
 from libcamera import controls
 import json
 from scipy.spatial.transform import Rotation as R
+import socket  # 追加: ソケット通信に必要
+
+# ソケット通信の設定
+host = '127.0.0.1'  # 送信先IPアドレス（ローカルホスト）
+port = 65432  # ポート番号
+
+# ソケットを作成
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+sock.connect((host, port))  # サーバーに接続
 
 # Load calibration data
 with open('calibration_data.json', 'r') as f:
@@ -62,6 +71,8 @@ try:
         camera_positions = []
         camera_orientations = []
 
+        
+
         if ids is not None:
             ids = ids.flatten()
             # Estimate pose of each marker
@@ -111,6 +122,13 @@ try:
                 avg_camera_position = np.mean(camera_positions, axis=0)
                 avg_camera_orientation = R.from_matrix(camera_orientations).mean().as_matrix()
 
+                # 位置情報と回転行列をソケットで送信
+                data_to_send = {
+                    "position": avg_camera_position.tolist(),
+                    "orientation": avg_camera_orientation.tolist()
+                }
+                sock.sendall(json.dumps(data_to_send).encode('utf-8'))  # 位置と姿勢を送信
+
                 # Reset plot
                 ax.cla()
                 ax.set_xlabel("X (m)")
@@ -153,6 +171,8 @@ try:
 
 except KeyboardInterrupt:
     pass
+finally:
+    sock.close()  # ソケットを閉じる
 
 # Stop camera and close windows
 picam2.stop()
