@@ -9,8 +9,8 @@ host = '127.0.0.1'
 port = 65432
 
 # 音声ファイルを読み込む
-file1 = 'audio1.wav'
-file2 = 'audio2.wav'
+file1 = 'berlin1936.wav'
+file2 = 'warsaw1939.wav'
 
 data1, samplerate1 = sf.read(file1)
 data2, samplerate2 = sf.read(file2)
